@@ -1,0 +1,10 @@
+streamlit
+numpy
+plotly
+python-dotenv
+textblob
+newsapi-python
+yfinance
+ta
+toml
+pandas
