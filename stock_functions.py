@@ -2,6 +2,7 @@ import streamlit as st
 import momentum
 import volume
 import trend
+import numpy as np
 
 
 # Function to categorize market cap
@@ -26,9 +27,9 @@ def calculate_indicators(df):
     # New Indicators
 
     # 1. EMA Crossovers
-    df['EMA_9'] = df['Close'].ewm(span=9, adjust=False).mean()
-    df['EMA_21'] = df['Close'].ewm(span=21, adjust=False).mean()
-    df['EMA_Crossover'] = df['EMA_9'] > df['EMA_21']
+    df['EMA_15'] = df['Close'].ewm(span=15, adjust=False).mean()
+    df['EMA_50'] = df['Close'].ewm(span=50, adjust=False).mean()
+    df['EMA_Crossover'] = df['EMA_15'] > df['EMA_50']
 
     # 2. Stochastic Oscillator
     stochastic = momentum.StochasticOscillator(
@@ -72,6 +73,15 @@ def calculate_macd(df, fast=12, slow=26, signal=9):
     return df
 
 
+def avg_obv_last_n_days(obv_series, n):
+    last_n_days_obv = obv_series.iloc[-n:]
+    weights = np.arange(1, n + 1)
+
+    avg_obv_last_n_days = np.dot(last_n_days_obv, weights) / weights.sum()
+
+    return avg_obv_last_n_days
+
+
 def analyze_stock(ticker, stock, df):
     try:
         # Current Indicators
@@ -81,12 +91,14 @@ def analyze_stock(ticker, stock, df):
         rsi = df['RSI'].iloc[-1]
         macd = df['MACD'].iloc[-1]
         signal = df['Signal'].iloc[-1]
-        ema_9 = df['EMA_9'].iloc[-1]
-        ema_21 = df['EMA_21'].iloc[-1]
+        ema_15 = df['EMA_15'].iloc[-1]
+        ema_50 = df['EMA_50'].iloc[-1]
         stochastic_k = df['Stochastic_%K'].iloc[-1]
         stochastic_d = df['Stochastic_%D'].iloc[-1]
         stochastic_signal = df['Stochastic_Signal'].iloc[-1]
         obv = df['OBV'].iloc[-1]
+        obv_short = avg_obv_last_n_days(df['OBV'], 50)
+        obv_long = avg_obv_last_n_days(df['OBV'], 200)
         adx = df['ADX'].iloc[-1]
 
         adx_pos = df['ADX_Pos'].iloc[-1]
@@ -104,21 +116,21 @@ def analyze_stock(ticker, stock, df):
         cap_category = get_cap_category(market_cap_value)
 
         # Determine Trend and Momentum
-        is_bullish_trend = ema_9 > ema_21 and sma_50 > sma_200
-        is_bearish_trend = ema_9 < ema_21 and sma_50 < sma_200
+        is_bullish_trend = ema_15 > ema_50 and sma_50 > sma_200
+        is_bearish_trend = ema_15 < ema_50 and sma_50 < sma_200
         is_strong_trend = adx > 25
-        #
+
         # Buy Signal Criteria
         buy_signal = (
                 is_bullish_trend and
-                obv > df['OBV'].shift(1).iloc[-1] and  # OBV is rising
+                obv_short > obv_long and  # OBV is rising
                 is_strong_trend
         )
 
         # Sell Signal Criteria
         sell_signal = (
                 is_bearish_trend and
-                obv < df['OBV'].shift(1).iloc[-1] and  # OBV is falling
+                obv_short < obv_long and  # OBV is falling
                 is_strong_trend
         )
 
@@ -150,8 +162,8 @@ def analyze_stock(ticker, stock, df):
 4. **RSI:** {rsi:.2f}
 5. **MACD:** {macd:.2f}
 6. **MACD Signal:** {signal:.2f}
-7. **EMA 9:** ₹{ema_9:.2f}
-8. **EMA 21:** ₹{ema_21:.2f}
+7. **EMA 15:** ₹{ema_15:.2f}
+8. **EMA 50:** ₹{ema_50:.2f}
 9. **Stochastic %K:** {stochastic_k:.2f}
 10. **Stochastic %D:** {stochastic_d:.2f}
 11. **OBV:** {obv:.2f}
@@ -173,7 +185,7 @@ def analyze_stock(ticker, stock, df):
 - The RSI at {rsi:.2f} suggests the stock is {'overbought' if rsi > 70 else 'oversold' if rsi < 30 else 'neutral'}.
 - The MACD ({macd:.2f}) is {'above' if macd > signal else 'below'} its signal line ({signal:.2f}), suggesting {'bullish' if macd > signal else 'bearish'} momentum.
 - The Stochastic Oscillator shows {'oversold conditions' if stochastic_k < 20 else 'overbought conditions' if stochastic_k > 80 else 'neutral conditions'}, with {'%K crossing above %D' if stochastic_signal else '%K crossing below %D'}.
-- OBV is {'rising, indicating accumulation.' if obv > df['OBV'].shift(1).iloc[-1] else 'falling, indicating distribution.'}
+- OBV is {'rising, indicating accumulation.' if obv_short > obv_long else 'falling, indicating distribution.'}
 - The ADX at {adx:.2f} confirms a {'strong' if is_strong_trend else 'weak'} trend.
 
 **Fundamental Considerations:**
