@@ -42,10 +42,10 @@ if "api_key" in st.secrets:
     api_key = st.secrets["api_key"]
 else:
     load_dotenv()
-    config = os.getenv('api_key')
+    api_key = os.getenv('api_key')
 
 # Initialize NewsAPI with the API key from the TOML file
-newsapi = NewsApiClient(api_key=config)
+newsapi = NewsApiClient(api_key=api_key)
 
 # Main execution flow
 if st.sidebar.button("Analyze"):
