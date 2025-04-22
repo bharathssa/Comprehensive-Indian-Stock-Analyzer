@@ -1,2 +1,5 @@
 .env
 .streamlit/secrets.toml
+momentum.py
+trend.py
+volume.py
