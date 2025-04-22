@@ -75,3 +75,20 @@ webencodings==0.5.1
 yfinance==0.2.55
 zipp==3.20.2
 ta ==0.11.0
+ta-lib
+streamlit == 1.17.0
+numpy ==2.0.2
+pandas
+momentum
+volume
+trend
+stock_functions
+stock_data
+os
+plotly.graph_objs
+datetime
+textblob
+dotenv
+typing
+ta.utils
+
