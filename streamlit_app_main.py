@@ -37,9 +37,12 @@ else:
 
 st.title("📈 Comprehensive Indian Stock Analyzer")
 
-load_dotenv()
 
-config = os.getenv('api_key')
+if "api_key" in st.secrets:
+    api_key = st.secrets["api_key"]
+else:
+    load_dotenv()
+    config = os.getenv('api_key')
 
 # Initialize NewsAPI with the API key from the TOML file
 newsapi = NewsApiClient(api_key=config)
