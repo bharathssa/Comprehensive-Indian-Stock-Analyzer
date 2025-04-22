@@ -1,7 +1,7 @@
 import streamlit as st
-import momentum
-import volume
-import trend
+from ta import momentum
+from ta import volume
+from ta import trend
 import numpy as np
 
 
