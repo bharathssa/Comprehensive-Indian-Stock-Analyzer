@@ -7,7 +7,7 @@
 """
 import numpy as np
 import pandas as pd
-
+import ta
 from ta.utils import IndicatorMixin, _ema
 
 
