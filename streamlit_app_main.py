@@ -17,6 +17,8 @@ except ImportError:
 
 st.set_page_config(page_title="Comprehensive Stock Analyzer", layout="wide")
 
+MAX_RECOMMENDATION_SCORE = 10
+
 
 def build_yfinance_ticker(symbol, market):
     clean_symbol = symbol.strip().upper()
@@ -104,6 +106,29 @@ def add_signal(score_data, condition, bullish_text, bearish_text, weight=1):
     else:
         score_data["score"] -= weight
         score_data["bearish"].append(bearish_text)
+
+
+def format_value(value, decimals=2):
+    if pd.isna(value):
+        return "N/A"
+    return f"{value:.{decimals}f}"
+
+
+def format_price(value, currency):
+    if pd.isna(value):
+        return "N/A"
+    return f"{currency}{value:,.2f}"
+
+
+def relation_text(left_value, right_value, left_label, right_label):
+    if pd.isna(left_value) or pd.isna(right_value):
+        return f"{left_label} and {right_label} do not have enough data yet."
+
+    if left_value > right_value:
+        return f"{left_label} is above {right_label}"
+    if left_value < right_value:
+        return f"{left_label} is below {right_label}"
+    return f"{left_label} is equal to {right_label}"
 
 
 def generate_recommendation(stock, df, average_sentiment):
@@ -215,7 +240,7 @@ def generate_recommendation(stock, df, average_sentiment):
     else:
         recommendation = "HOLD / WATCH"
 
-    confidence = min(95, 50 + abs(score) * 7)
+    confidence = min(95, 50 + (abs(score) / MAX_RECOMMENDATION_SCORE) * 45)
     return recommendation, score, confidence, score_data
 
 
@@ -225,7 +250,7 @@ def display_recommendation(ticker, stock, df, average_sentiment):
     st.subheader("Current Recommendation")
     col1, col2, col3 = st.columns(3)
     col1.metric("Signal", recommendation)
-    col2.metric("Score", f"{score:+.0f}")
+    col2.metric("Score", f"{score:+.0f} / {MAX_RECOMMENDATION_SCORE}")
     col3.metric("Confidence", f"{confidence:.0f}%")
 
     if score_data["bullish"]:
@@ -281,6 +306,7 @@ if st.sidebar.button("Analyze"):
         newsapi = get_newsapi_client()
         news_articles, news_error = fetch_news_articles(newsapi, ticker_input)
         average_sentiment = calculate_sentiment_score(news_articles)
+        currency = "₹" if market == "India - NSE" else "$"
 
         display_recommendation(ticker, stock_info, historical_data, average_sentiment)
         display_investment_simulation(historical_data, investment_amount, market)
@@ -347,7 +373,7 @@ if st.sidebar.button("Analyze"):
         fig_candlestick.add_trace(go.Scatter(x=historical_data.index, y=historical_data['SMA_50'], mode='lines', name='SMA 50', line=dict(color='blue')))
         fig_candlestick.add_trace(go.Scatter(x=historical_data.index, y=historical_data['SMA_200'], mode='lines', name='SMA 200', line=dict(color='red')))
         fig_candlestick.add_trace(go.Scatter(x=historical_data.index, y=historical_data['EMA_50'], mode='lines', name='EMA 50', line=dict(color='green')))
-        fig_candlestick.add_trace(go.Scatter(x=historical_data.index, y=historical_data['EMA_50'], mode='lines', name='EMA 200', line=dict(color='orange')))
+        fig_candlestick.add_trace(go.Scatter(x=historical_data.index, y=historical_data['EMA_200'], mode='lines', name='EMA 200', line=dict(color='orange')))
 
         fig_candlestick.update_layout(title=f"{ticker} Price Analysis",
                                       xaxis_title="Date",
@@ -365,16 +391,24 @@ if st.sidebar.button("Analyze"):
         sma_200 = historical_data['SMA_200'].iloc[-1]
         ema_15 = historical_data['EMA_15'].iloc[-1]
         ema_50 = historical_data['EMA_50'].iloc[-1]
+        ema_200 = historical_data['EMA_200'].iloc[-1]
+        latest_date = historical_data.index[-1].strftime("%Y-%m-%d")
 
-        if current_price < sma_50 and current_price < sma_200:
-            trend = "bearish"
-        elif current_price > sma_50 and current_price > sma_200:
-            trend = "bullish"
-        else:
-            trend = "mixed"
+        price_vs_sma50 = relation_text(current_price, sma_50, "latest close", "50-day SMA")
+        price_vs_sma200 = relation_text(current_price, sma_200, "latest close", "200-day SMA")
+        ema_summary = relation_text(ema_50, ema_200, "EMA 50", "EMA 200")
+        sma_200_note = (
+            "The 200-day SMA appears only after 200 available price records, so it may start later on shorter time periods."
+            if historical_data['SMA_200'].isna().any()
+            else "The 200-day SMA has enough history across the selected period."
+        )
 
         st.write(
-            f"**Current Interpretation**: The stock is trading below its 50-day and 200-day SMAs, indicating a {trend} trend. The EMA lines suggest recent price trends, where the stock is currently below the shorter-term EMA values, reflecting bearish momentum.")
+            f"**Current Interpretation**: On {latest_date}, the latest close is {format_price(current_price, currency)}; {price_vs_sma50} and {price_vs_sma200}."
+        )
+        st.write(
+            f"The moving-average visual shows medium and long-term trend context: {ema_summary}. {sma_200_note}"
+        )
 
         # 2. MACD Chart
         st.subheader("MACD (Moving Average Convergence Divergence) Analysis")
@@ -415,7 +449,8 @@ if st.sidebar.button("Analyze"):
         fig_macd = go.Figure()
         fig_macd.add_trace(go.Scatter(x=historical_data.index, y=historical_data['MACD'], mode='lines', name='MACD', line=dict(color='green')))
         fig_macd.add_trace(go.Scatter(x=historical_data.index, y=historical_data['Signal'], mode='lines', name='Signal', line=dict(color='orange')))
-        fig_macd.add_trace(go.Bar(x=historical_data.index, y=historical_data['MACD_Histogram'], name='MACD Histogram', marker_color='lightblue'))
+        macd_colors = np.where(historical_data['MACD_Histogram'] >= 0, 'rgba(34, 139, 34, 0.65)', 'rgba(220, 20, 60, 0.65)')
+        fig_macd.add_trace(go.Bar(x=historical_data.index, y=historical_data['MACD_Histogram'], name='MACD Histogram', marker_color=macd_colors))
 
         fig_macd.update_layout(title=f"{ticker} MACD Analysis",
                                xaxis_title="Date",
@@ -430,13 +465,18 @@ if st.sidebar.button("Analyze"):
         # Current Interpretation for MACD
         macd_value = historical_data['MACD'].iloc[-1]
         signal_value = historical_data['Signal'].iloc[-1]
+        histogram_value = historical_data['MACD_Histogram'].iloc[-1]
 
-        if macd_value < signal_value:
-            macd_trend = "bearish"
-        else:
-            macd_trend = "bullish"
+        macd_relation = relation_text(macd_value, signal_value, "MACD", "Signal")
+        macd_trend = "bullish" if macd_value > signal_value else "bearish" if macd_value < signal_value else "neutral"
+        histogram_trend = "above zero" if histogram_value > 0 else "below zero" if histogram_value < 0 else "at zero"
 
-        st.write(f"**Current Interpretation**: The MACD is below the Signal line, indicating {macd_trend} momentum. The negative histogram bars further confirm the downward trend.")
+        st.write(
+            f"**Current Interpretation**: {macd_relation}, with MACD at {format_value(macd_value)} and Signal at {format_value(signal_value)}."
+        )
+        st.write(
+            f"The histogram is {histogram_trend} at {format_value(histogram_value)}, so the latest MACD visual is showing {macd_trend} momentum."
+        )
 
         # 3. RSI Chart
         st.subheader("RSI (Relative Strength Index) Analysis")
@@ -498,12 +538,18 @@ if st.sidebar.button("Analyze"):
 
         if rsi_value < 30:
             rsi_trend = "oversold"
+            rsi_detail = "This can indicate selling pressure has been stretched, although oversold readings can persist during strong downtrends."
         elif rsi_value > 70:
             rsi_trend = "overbought"
+            rsi_detail = "This can indicate buying pressure has been stretched, although overbought readings can persist during strong uptrends."
         else:
             rsi_trend = "neutral"
+            rsi_detail = "This means momentum is not currently at an extreme overbought or oversold level."
 
-        st.write(f"**Current Interpretation**: The RSI is currently {rsi_trend}, suggesting potential price movement in the opposite direction.")
+        st.write(
+            f"**Current Interpretation**: The RSI is {format_value(rsi_value)}; based on the 30/70 guide lines, it is currently {rsi_trend}."
+        )
+        st.write(rsi_detail)
 
         # 4. Stochastic Oscillator
         st.subheader("Stochastic Oscillator")
@@ -556,8 +602,8 @@ if st.sidebar.button("Analyze"):
         fig_stochastic = go.Figure()
         fig_stochastic.add_trace(go.Scatter(x=historical_data.index, y=historical_data['Stochastic_%K'], mode='lines', name='Stochastic %K', line=dict(color='blue')))
         fig_stochastic.add_trace(go.Scatter(x=historical_data.index, y=historical_data['Stochastic_%D'], mode='lines', name='Stochastic %D', line=dict(color='orange')))
-        fig_stochastic.add_shape(type="line", x0=historical_data.index[0], y0=20, x1=historical_data.index[-1], y1=20, line=dict(color="red", dash="dash"))
-        fig_stochastic.add_shape(type="line", x0=historical_data.index[0], y0=80, x1=historical_data.index[-1], y1=80, line=dict(color="green", dash="dash"))
+        fig_stochastic.add_shape(type="line", x0=historical_data.index[0], y0=20, x1=historical_data.index[-1], y1=20, line=dict(color="green", dash="dash"))
+        fig_stochastic.add_shape(type="line", x0=historical_data.index[0], y0=80, x1=historical_data.index[-1], y1=80, line=dict(color="red", dash="dash"))
 
         fig_stochastic.update_layout(title=f"{ticker} Stochastic Oscillator",
                                      xaxis_title="Date",
@@ -572,10 +618,24 @@ if st.sidebar.button("Analyze"):
 
         if stochastic_k > stochastic_d:
             stochastic_trend = "bullish"
+            stochastic_relation = "%K is above %D"
         else:
             stochastic_trend = "bearish"
+            stochastic_relation = "%K is below %D"
 
-        st.write(f"**Current Interpretation**: The %K is crossing {'above' if stochastic_k > stochastic_d else 'below'} the %D line, suggesting {stochastic_trend} momentum.")
+        if stochastic_k > 80:
+            stochastic_zone = "overbought zone"
+        elif stochastic_k < 20:
+            stochastic_zone = "oversold zone"
+        else:
+            stochastic_zone = "neutral zone"
+
+        st.write(
+            f"**Current Interpretation**: The latest %K is {format_value(stochastic_k)} and %D is {format_value(stochastic_d)}, so {stochastic_relation}."
+        )
+        st.write(
+            f"The oscillator is in the {stochastic_zone}; together, the lines currently suggest {stochastic_trend} short-term momentum."
+        )
 
         # 5. ADX Analysis
         st.subheader("ADX (Average Directional Index) Analysis")
@@ -625,7 +685,9 @@ if st.sidebar.button("Analyze"):
 
         fig_adx = go.Figure()
         fig_adx.add_trace(go.Scatter(x=historical_data.index, y=historical_data['ADX'], mode='lines', name='ADX', line=dict(color='blue')))
-        fig_adx.add_shape(type="line", x0=historical_data.index[0], y0=30, x1=historical_data.index[-1], y1=30, line=dict(color="red", dash="dash"))
+        fig_adx.add_trace(go.Scatter(x=historical_data.index, y=historical_data['ADX_Pos'], mode='lines', name='+DI', line=dict(color='green')))
+        fig_adx.add_trace(go.Scatter(x=historical_data.index, y=historical_data['ADX_Neg'], mode='lines', name='-DI', line=dict(color='red')))
+        fig_adx.add_shape(type="line", x0=historical_data.index[0], y0=25, x1=historical_data.index[-1], y1=25, line=dict(color="gray", dash="dash"))
 
         fig_adx.update_layout(title=f"{ticker} ADX Analysis",
                               xaxis_title="Date",
@@ -636,13 +698,22 @@ if st.sidebar.button("Analyze"):
 
         # Current Interpretation for ADX
         adx_value = historical_data['ADX'].iloc[-1]
+        adx_pos_value = historical_data['ADX_Pos'].iloc[-1]
+        adx_neg_value = historical_data['ADX_Neg'].iloc[-1]
 
-        if adx_value > 30:
+        if adx_value > 25:
             adx_trend = "strong"
         else:
             adx_trend = "weak"
 
-        st.write(f"**Current Interpretation**: The ADX value is {adx_value}, indicating a {adx_trend} trend.")
+        directional_bias = "upward" if adx_pos_value > adx_neg_value else "downward" if adx_neg_value > adx_pos_value else "flat"
+
+        st.write(
+            f"**Current Interpretation**: The ADX value is {format_value(adx_value)}, indicating a {adx_trend} trend strength reading."
+        )
+        st.write(
+            f"+DI is {format_value(adx_pos_value)} and -DI is {format_value(adx_neg_value)}, so the directional bias shown in the indicator is {directional_bias}."
+        )
 
         # 6. OBV Analysis
         st.subheader("OBV (On-Balance Volume) Analysis")
@@ -698,13 +769,19 @@ if st.sidebar.button("Analyze"):
         # Current Interpretation for OBV
         obv_value = historical_data['OBV'].iloc[-1]
         previous_obv_value = historical_data['OBV'].iloc[-2]
+        obv_change = obv_value - previous_obv_value
 
         if obv_value > previous_obv_value:
             obv_trend = "accumulation"
         else:
             obv_trend = "distribution"
 
-        st.write(f"**Current Interpretation**: The OBV trend indicates {obv_trend}, suggesting the sentiment of investors regarding buying or selling the stock.")
+        st.write(
+            f"**Current Interpretation**: OBV moved from {format_value(previous_obv_value, 0)} to {format_value(obv_value, 0)}, a change of {format_value(obv_change, 0)}."
+        )
+        st.write(
+            f"The OBV visual is currently showing {obv_trend}, which helps confirm whether volume is supporting the latest price move."
+        )
 
         # News Section
         st.subheader("Latest News")

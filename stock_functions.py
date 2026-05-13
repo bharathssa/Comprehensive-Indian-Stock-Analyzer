@@ -29,6 +29,7 @@ def calculate_indicators(df):
     # 1. EMA Crossovers
     df['EMA_15'] = df['Close'].ewm(span=15, adjust=False).mean()
     df['EMA_50'] = df['Close'].ewm(span=50, adjust=False).mean()
+    df['EMA_200'] = df['Close'].ewm(span=200, adjust=False).mean()
     df['EMA_Crossover'] = df['EMA_15'] > df['EMA_50']
 
     # 2. Stochastic Oscillator
@@ -75,7 +76,7 @@ def calculate_macd(df, fast=12, slow=26, signal=9):
 
 def avg_obv_last_n_days(obv_series, n):
     last_n_days_obv = obv_series.iloc[-n:]
-    weights = np.arange(1, n + 1)
+    weights = np.arange(1, len(last_n_days_obv) + 1)
 
     avg_obv_last_n_days = np.dot(last_n_days_obv, weights) / weights.sum()
 
@@ -153,6 +154,15 @@ def analyze_stock(ticker, stock, df):
         else:
             recommendation_badge = '🟡 HOLD'
 
+        if is_bullish_trend:
+            trend_summary = "above the key moving averages, indicating a bullish trend"
+        elif is_bearish_trend:
+            trend_summary = "below the key moving averages, indicating a bearish trend"
+        else:
+            trend_summary = "mixed across the key moving averages, indicating an unclear trend"
+
+        stochastic_relation = "%K is above %D" if stochastic_signal else "%K is below %D"
+
         insights: str = f"""**Analysis for {ticker}:**
 
 ### Technical Analysis:
@@ -181,10 +191,10 @@ def analyze_stock(ticker, stock, df):
 {ticker} is currently trading at ₹{current_price:.2f}.
 
 **Technical Outlook:**
-# - The stock is trading {'above' if is_bullish_trend else 'below'} its 50-day and 200-day moving averages, indicating a {'bullish' if is_bullish_trend else 'bearish'} trend.
+- The stock is {trend_summary}.
 - The RSI at {rsi:.2f} suggests the stock is {'overbought' if rsi > 70 else 'oversold' if rsi < 30 else 'neutral'}.
 - The MACD ({macd:.2f}) is {'above' if macd > signal else 'below'} its signal line ({signal:.2f}), suggesting {'bullish' if macd > signal else 'bearish'} momentum.
-- The Stochastic Oscillator shows {'oversold conditions' if stochastic_k < 20 else 'overbought conditions' if stochastic_k > 80 else 'neutral conditions'}, with {'%K crossing above %D' if stochastic_signal else '%K crossing below %D'}.
+- The Stochastic Oscillator shows {'oversold conditions' if stochastic_k < 20 else 'overbought conditions' if stochastic_k > 80 else 'neutral conditions'}, and {stochastic_relation}.
 - OBV is {'rising, indicating accumulation.' if obv_short > obv_long else 'falling, indicating distribution.'}
 - The ADX at {adx:.2f} confirms a {'strong' if is_strong_trend else 'weak'} trend.
 
