@@ -15,12 +15,24 @@ try:
 except ImportError:
     NewsApiClient = None
 
-st.set_page_config(page_title="Comprehensive Indian Stock Analyzer", layout="wide")
+st.set_page_config(page_title="Comprehensive Stock Analyzer", layout="wide")
+
+
+def build_yfinance_ticker(symbol, market):
+    clean_symbol = symbol.strip().upper()
+    if market == "India - NSE" and not clean_symbol.endswith((".NS", ".BO")):
+        return f"{clean_symbol}.NS"
+    return clean_symbol
+
 
 # Sidebar Inputs
 st.sidebar.title("Stock Analyzer Inputs")
 
-ticker_input = st.sidebar.text_input("Enter the Indian stock symbol (e.g., RELIANCE)", value="RELIANCE")
+market = st.sidebar.selectbox(
+    "Select Market",
+    options=["India - NSE", "US"],
+)
+ticker_input = st.sidebar.text_input("Enter stock symbol (e.g., RELIANCE or AAPL)", value="RELIANCE")
 time_interval = st.sidebar.selectbox(
     "Select Time Interval",
     options=["1m", "5m", "15m", "1D", "1W", "1M"],
@@ -34,12 +46,9 @@ time_period = st.sidebar.selectbox(
 start_date = st.sidebar.date_input("Start Date", datetime(2022, 1, 1))
 end_date = st.sidebar.date_input("End Date", datetime.today())
 
-if not ticker_input.endswith('.NS'):
-    ticker = ticker_input.upper() + '.NS'
-else:
-    ticker = ticker_input.upper()
+ticker = build_yfinance_ticker(ticker_input, market)
 
-st.title("📈 Comprehensive Indian Stock Analyzer")
+st.title("📈 Comprehensive Stock Analyzer")
 
 
 def get_news_api_key():

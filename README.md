@@ -5,19 +5,21 @@
 ### Main Application Setup
 ```python
 # Streamlit configuration
-st.set_page_config(page_title="Comprehensive Indian Stock Analyzer", layout="wide")
+st.set_page_config(page_title="Comprehensive Stock Analyzer", layout="wide")
 ```
 - Sets up the webpage with a wide layout for better visualization
-- Title indicates focus on Indian stocks
+- Supports Indian NSE stocks and US stocks
 
 ### Input Parameters
 ```python
-ticker_input = st.sidebar.text_input("Enter the Indian stock symbol")
+market = st.sidebar.selectbox("Select Market")
+ticker_input = st.sidebar.text_input("Enter stock symbol")
 time_interval = st.sidebar.selectbox("Select Time Interval")
 time_period = st.sidebar.selectbox("Select Time Period")
 ```
 - Creates sidebar inputs for stock selection and time parameters
-- Automatically appends '.NS' for NSE (National Stock Exchange) stocks
+- Automatically appends '.NS' for NSE stocks when the Indian market is selected
+- Uses US stock tickers as entered, such as AAPL, MSFT, or TSLA
 
 ## 2. Technical Indicators Analysis
 
