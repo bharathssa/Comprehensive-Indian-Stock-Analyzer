@@ -131,6 +131,22 @@ def relation_text(left_value, right_value, left_label, right_label):
     return f"{left_label} is equal to {right_label}"
 
 
+def describe_sentiment_score(score):
+    if score > 0.3:
+        return "This is a clearly positive news tone."
+    if score > 0.1:
+        return "This is a positive news tone, but not extremely strong."
+    if score > 0:
+        return "This is slightly positive, but close to neutral."
+    if score == 0:
+        return "This is neutral, meaning the fetched headlines did not lean positive or negative."
+    if score > -0.1:
+        return "This is slightly negative, but close to neutral."
+    if score > -0.3:
+        return "This is a negative news tone, but not extremely strong."
+    return "This is a clearly negative news tone."
+
+
 def generate_recommendation(stock, df, average_sentiment):
     latest = df.iloc[-1]
     previous = df.iloc[-2] if len(df) > 1 else latest
@@ -801,6 +817,12 @@ if st.sidebar.button("Analyze"):
 
         # Display the average sentiment score and label
         st.write(f"Average Sentiment Score: {average_sentiment:.2f} ({sentiment_label})")
+        st.write(
+            "The sentiment score ranges from -1.00 to +1.00: negative values mean bearish/negative news tone, 0.00 means neutral, and positive values mean bullish/positive news tone."
+        )
+        st.write(
+            f"A score of {average_sentiment:.2f} means: {describe_sentiment_score(average_sentiment)} The score is calculated from the fetched NewsAPI headlines for this ticker."
+        )
 
         # Add specific messages based on sentiment score
         if average_sentiment > 0.1:
