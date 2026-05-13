@@ -7,9 +7,13 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objs as go
 from datetime import datetime
-from newsapi import NewsApiClient
 from textblob import TextBlob
 from dotenv import load_dotenv
+
+try:
+    from newsapi import NewsApiClient
+except ImportError:
+    NewsApiClient = None
 
 st.set_page_config(page_title="Comprehensive Indian Stock Analyzer", layout="wide")
 
@@ -38,14 +42,25 @@ else:
 st.title("📈 Comprehensive Indian Stock Analyzer")
 
 
-if "api_key" in st.secrets:
-    api_key = st.secrets["api_key"]
-else:
-    load_dotenv()
-    api_key = os.getenv('api_key')
+def get_news_api_key():
+    try:
+        return st.secrets.get("api_key")
+    except (FileNotFoundError, KeyError):
+        pass
 
-# Initialize NewsAPI with the API key from the TOML file
-newsapi = NewsApiClient(api_key=api_key)
+    load_dotenv()
+    return os.getenv('api_key')
+
+
+def get_newsapi_client():
+    api_key = get_news_api_key()
+    if not api_key:
+        return None
+
+    if NewsApiClient is None:
+        return None
+
+    return NewsApiClient(api_key=api_key)
 
 # Main execution flow
 if st.sidebar.button("Analyze"):
@@ -475,20 +490,29 @@ if st.sidebar.button("Analyze"):
 
         st.write(f"**Current Interpretation**: The OBV trend indicates {obv_trend}, suggesting the sentiment of investors regarding buying or selling the stock.")
 
+        newsapi = get_newsapi_client()
+        news_articles = []
+
         # News Section
         st.subheader("Latest News")
-        news = newsapi.get_everything(q=ticker_input, language='en', sort_by='publishedAt')
-        for article in news['articles'][:5]:  # Display top 5 articles
-            st.markdown(f"### [{article['title']}]({article['url']})")
-            st.markdown(f"**Source:** {article['source']['name']} | **Published At:** {article['publishedAt']}")
-            st.markdown(f"{article['description']}\n")
+        if newsapi is None:
+            st.info("Add a NewsAPI key as `api_key` in Streamlit secrets or `.env` to enable latest news and sentiment.")
+        else:
+            try:
+                news = newsapi.get_everything(q=ticker_input, language='en', sort_by='publishedAt')
+                news_articles = news.get('articles', [])
+                for article in news_articles[:5]:  # Display top 5 articles
+                    st.markdown(f"### [{article['title']}]({article['url']})")
+                    st.markdown(f"**Source:** {article['source']['name']} | **Published At:** {article['publishedAt']}")
+                    st.markdown(f"{article['description']}\n")
+            except Exception as e:
+                st.warning(f"Unable to fetch latest news: {e}")
 
         # Sentiment Analysis
         st.subheader("Sentiment Analysis")
-        news_articles = newsapi.get_everything(q=ticker_input, language='en', sort_by='relevancy')
         sentiments = []
 
-        for article in news_articles['articles']:
+        for article in news_articles:
             analysis = TextBlob(article['title'])
             sentiments.append(analysis.sentiment.polarity)  # Get sentiment polarity
 
