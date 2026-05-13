@@ -33,6 +33,7 @@ market = st.sidebar.selectbox(
     options=["India - NSE", "US"],
 )
 ticker_input = st.sidebar.text_input("Enter stock symbol (e.g., RELIANCE or AAPL)", value="RELIANCE")
+investment_amount = st.sidebar.number_input("Simulation Investment Amount", min_value=100.0, value=10000.0, step=100.0)
 time_interval = st.sidebar.selectbox(
     "Select Time Interval",
     options=["1m", "5m", "15m", "1D", "1W", "1M"],
@@ -71,12 +72,218 @@ def get_newsapi_client():
 
     return NewsApiClient(api_key=api_key)
 
+
+def fetch_news_articles(newsapi, query):
+    if newsapi is None:
+        return [], None
+
+    try:
+        news = newsapi.get_everything(q=query, language='en', sort_by='publishedAt')
+        return news.get('articles', []), None
+    except Exception as e:
+        return [], f"Unable to fetch latest news: {e}"
+
+
+def calculate_sentiment_score(news_articles):
+    sentiments = []
+    for article in news_articles:
+        title = article.get('title')
+        if title:
+            analysis = TextBlob(title)
+            sentiments.append(analysis.sentiment.polarity)
+    return np.mean(sentiments) if sentiments else 0
+
+
+def add_signal(score_data, condition, bullish_text, bearish_text, weight=1):
+    if condition is None:
+        return
+
+    if condition:
+        score_data["score"] += weight
+        score_data["bullish"].append(bullish_text)
+    else:
+        score_data["score"] -= weight
+        score_data["bearish"].append(bearish_text)
+
+
+def generate_recommendation(stock, df, average_sentiment):
+    latest = df.iloc[-1]
+    previous = df.iloc[-2] if len(df) > 1 else latest
+    score_data = {"score": 0, "bullish": [], "bearish": [], "neutral": []}
+
+    current_price = latest.get('Close')
+    sma_50 = latest.get('SMA_50')
+    sma_200 = latest.get('SMA_200')
+    ema_15 = latest.get('EMA_15')
+    ema_50 = latest.get('EMA_50')
+    macd = latest.get('MACD')
+    signal = latest.get('Signal')
+    rsi = latest.get('RSI')
+    stochastic_k = latest.get('Stochastic_%K')
+    stochastic_d = latest.get('Stochastic_%D')
+    obv = latest.get('OBV')
+    previous_obv = previous.get('OBV')
+    adx = latest.get('ADX')
+
+    add_signal(
+        score_data,
+        current_price > sma_50 if pd.notna(sma_50) else None,
+        "Price is above the 50-day SMA.",
+        "Price is below the 50-day SMA.",
+    )
+    add_signal(
+        score_data,
+        current_price > sma_200 if pd.notna(sma_200) else None,
+        "Price is above the 200-day SMA.",
+        "Price is below the 200-day SMA.",
+    )
+    add_signal(
+        score_data,
+        ema_15 > ema_50 if pd.notna(ema_15) and pd.notna(ema_50) else None,
+        "Short-term EMA is above long-term EMA.",
+        "Short-term EMA is below long-term EMA.",
+    )
+    add_signal(
+        score_data,
+        macd > signal if pd.notna(macd) and pd.notna(signal) else None,
+        "MACD is above the signal line.",
+        "MACD is below the signal line.",
+    )
+    add_signal(
+        score_data,
+        stochastic_k > stochastic_d if pd.notna(stochastic_k) and pd.notna(stochastic_d) else None,
+        "Stochastic %K is above %D.",
+        "Stochastic %K is below %D.",
+    )
+    add_signal(
+        score_data,
+        obv > previous_obv if pd.notna(obv) and pd.notna(previous_obv) else None,
+        "OBV is rising, showing accumulation.",
+        "OBV is falling, showing distribution.",
+    )
+
+    if pd.notna(rsi):
+        if rsi < 30:
+            score_data["score"] += 1
+            score_data["bullish"].append("RSI is oversold, which may suggest rebound potential.")
+        elif rsi > 70:
+            score_data["score"] -= 1
+            score_data["bearish"].append("RSI is overbought, which may suggest pullback risk.")
+        else:
+            score_data["neutral"].append("RSI is neutral.")
+
+    if pd.notna(adx):
+        if adx > 25:
+            if ema_15 > ema_50:
+                score_data["score"] += 1
+                score_data["bullish"].append("ADX confirms a strong bullish trend.")
+            elif ema_15 < ema_50:
+                score_data["score"] -= 1
+                score_data["bearish"].append("ADX confirms a strong bearish trend.")
+        else:
+            score_data["neutral"].append("ADX shows the current trend is not very strong.")
+
+    pe_ratio = stock.get('trailingPE') if stock else None
+    if isinstance(pe_ratio, (int, float)):
+        if pe_ratio < 15:
+            score_data["score"] += 1
+            score_data["bullish"].append("P/E ratio is relatively low.")
+        elif pe_ratio > 35:
+            score_data["score"] -= 1
+            score_data["bearish"].append("P/E ratio is relatively high.")
+        else:
+            score_data["neutral"].append("P/E ratio is in a moderate range.")
+
+    if average_sentiment > 0.1:
+        score_data["score"] += 1
+        score_data["bullish"].append("Recent news sentiment is positive.")
+    elif average_sentiment < -0.1:
+        score_data["score"] -= 1
+        score_data["bearish"].append("Recent news sentiment is negative.")
+    else:
+        score_data["neutral"].append("Recent news sentiment is neutral or unavailable.")
+
+    score = score_data["score"]
+    if score >= 5:
+        recommendation = "STRONG BUY"
+    elif score >= 2:
+        recommendation = "BUY / ACCUMULATE"
+    elif score <= -5:
+        recommendation = "SELL / AVOID"
+    elif score <= -2:
+        recommendation = "CAUTION"
+    else:
+        recommendation = "HOLD / WATCH"
+
+    confidence = min(95, 50 + abs(score) * 7)
+    return recommendation, score, confidence, score_data
+
+
+def display_recommendation(ticker, stock, df, average_sentiment):
+    recommendation, score, confidence, score_data = generate_recommendation(stock, df, average_sentiment)
+
+    st.subheader("Current Recommendation")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Signal", recommendation)
+    col2.metric("Score", f"{score:+.0f}")
+    col3.metric("Confidence", f"{confidence:.0f}%")
+
+    if score_data["bullish"]:
+        st.markdown("**Bullish signals:**")
+        for signal in score_data["bullish"][:5]:
+            st.write(f"- {signal}")
+
+    if score_data["bearish"]:
+        st.markdown("**Bearish signals:**")
+        for signal in score_data["bearish"][:5]:
+            st.write(f"- {signal}")
+
+    if score_data["neutral"]:
+        st.markdown("**Neutral context:**")
+        for signal in score_data["neutral"][:3]:
+            st.write(f"- {signal}")
+
+    st.caption(
+        f"This is an algorithmic suggestion for {ticker} based on technical indicators, fundamentals, and news sentiment. It is not financial advice."
+    )
+
+
+def display_investment_simulation(df, amount, market):
+    first_close = df['Close'].iloc[0]
+    latest_close = df['Close'].iloc[-1]
+    if first_close <= 0 or pd.isna(first_close) or pd.isna(latest_close):
+        st.warning("Not enough valid price data to run the buy and hold simulation.")
+        return
+
+    shares = amount / first_close
+    current_value = shares * latest_close
+    profit = current_value - amount
+    profit_percent = (profit / amount) * 100
+    currency = "₹" if market == "India - NSE" else "$"
+
+    st.subheader("Buy and Hold Simulation")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Invested", f"{currency}{amount:,.2f}")
+    col2.metric("Start Price", f"{currency}{first_close:,.2f}")
+    col3.metric("Latest Value", f"{currency}{current_value:,.2f}")
+    col4.metric("Profit / Loss", f"{currency}{profit:,.2f}", f"{profit_percent:.2f}%")
+
+    st.caption(
+        "Simulation assumes the full amount was invested at the first close in the selected period and held until the latest close. Fees, taxes, dividends, and slippage are not included."
+    )
+
 # Main execution flow
 if st.sidebar.button("Analyze"):
     stock_info, historical_data = stock_data.get_stock_data(ticker, time_period)
     if stock_info is not None and historical_data is not None:
         # Calculate indicators
         historical_data = stock_functions.calculate_indicators(historical_data)
+        newsapi = get_newsapi_client()
+        news_articles, news_error = fetch_news_articles(newsapi, ticker_input)
+        average_sentiment = calculate_sentiment_score(news_articles)
+
+        display_recommendation(ticker, stock_info, historical_data, average_sentiment)
+        display_investment_simulation(historical_data, investment_amount, market)
 
         # Display historical data
         st.subheader(f"Historical Data for {ticker}")
@@ -499,34 +706,20 @@ if st.sidebar.button("Analyze"):
 
         st.write(f"**Current Interpretation**: The OBV trend indicates {obv_trend}, suggesting the sentiment of investors regarding buying or selling the stock.")
 
-        newsapi = get_newsapi_client()
-        news_articles = []
-
         # News Section
         st.subheader("Latest News")
         if newsapi is None:
             st.info("Add a NewsAPI key as `api_key` in Streamlit secrets or `.env` to enable latest news and sentiment.")
+        elif news_error:
+            st.warning(news_error)
         else:
-            try:
-                news = newsapi.get_everything(q=ticker_input, language='en', sort_by='publishedAt')
-                news_articles = news.get('articles', [])
-                for article in news_articles[:5]:  # Display top 5 articles
-                    st.markdown(f"### [{article['title']}]({article['url']})")
-                    st.markdown(f"**Source:** {article['source']['name']} | **Published At:** {article['publishedAt']}")
-                    st.markdown(f"{article['description']}\n")
-            except Exception as e:
-                st.warning(f"Unable to fetch latest news: {e}")
+            for article in news_articles[:5]:  # Display top 5 articles
+                st.markdown(f"### [{article['title']}]({article['url']})")
+                st.markdown(f"**Source:** {article['source']['name']} | **Published At:** {article['publishedAt']}")
+                st.markdown(f"{article['description']}\n")
 
         # Sentiment Analysis
         st.subheader("Sentiment Analysis")
-        sentiments = []
-
-        for article in news_articles:
-            analysis = TextBlob(article['title'])
-            sentiments.append(analysis.sentiment.polarity)  # Get sentiment polarity
-
-        # Display average sentiment score
-        average_sentiment = np.mean(sentiments) if sentiments else 0
         sentiment_label = "Positive" if average_sentiment > 0 else "Negative" if average_sentiment < 0 else "Neutral"
 
         # Display the average sentiment score and label

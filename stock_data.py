@@ -13,7 +13,7 @@ def fetch_historical_data(ticker, time_period):
     return stock.history(period=time_period)
 
 
-@st.cache_data
+@st.cache_data(ttl=3600)
 def get_stock_data(ticker, time_period):
     try:
         stock_info = fetch_stock_info(ticker)

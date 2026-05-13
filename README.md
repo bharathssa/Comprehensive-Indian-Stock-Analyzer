@@ -23,6 +23,19 @@ time_period = st.sidebar.selectbox("Select Time Period")
 
 ## 2. Technical Indicators Analysis
 
+### Current Recommendation
+The app combines trend, momentum, volume, fundamental, and news sentiment signals into an algorithmic recommendation:
+- STRONG BUY
+- BUY / ACCUMULATE
+- HOLD / WATCH
+- CAUTION
+- SELL / AVOID
+
+It also shows the bullish, bearish, and neutral reasons behind the score.
+
+### Buy and Hold Simulation
+The simulator estimates what an investment would be worth if it was bought at the first closing price in the selected period and held until the latest close.
+
 ### A. Candlestick Chart with Moving Averages
 ```python
 fig_candlestick.add_trace(go.Candlestick(...))
